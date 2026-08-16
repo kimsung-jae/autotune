@@ -7,7 +7,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class AutoDrawService extends Service{
-    public static final String CHANNEL_ID="bubble_tripick80_v17_30fix_live";
+    public static final String CHANNEL_ID="bubble_dualrange_final1_v110_live";
     public static final int NOTI_ID=5211;
     private final Handler h=new Handler(Looper.getMainLooper());
     private final ExecutorService ex=Executors.newSingleThreadExecutor();
@@ -81,8 +81,8 @@ public class AutoDrawService extends Service{
 
     private void createChannel(){
         if(Build.VERSION.SDK_INT>=26){
-            NotificationChannel ch=new NotificationChannel(CHANNEL_ID,"삼치기80 AUTO-RANGE80 자동추첨",NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("보글사다리 삼치기80 AUTO-RANGE80 픽과 다음 추첨 시간을 표시합니다.");
+            NotificationChannel ch=new NotificationChannel(CHANNEL_ID,"DUAL-RANGE FINAL1 V1.10 자동추첨",NotificationManager.IMPORTANCE_LOW);
+            ch.setDescription("V1.7 + V1.9 DUAL-RANGE 필터 후 최종 1픽과 다음 추첨 시간을 표시합니다.");
             NotificationManager nm=getSystemService(NotificationManager.class);
             if(nm!=null)nm.createNotificationChannel(ch);
         }
@@ -93,10 +93,10 @@ public class AutoDrawService extends Service{
         PendingIntent pi=PendingIntent.getActivity(this,0,open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         android.content.SharedPreferences sp=FlowCore.prefs(this);
         String pick=sp.getString(FlowCore.K_LAST_PICK,"분석 대기");
-        String text="다음 "+FlowCore.countdownText()+" · AUTO-RANGE80 "+pick+" · 실전 "+FlowCore.liveRate(this);
+        String text="다음 "+FlowCore.countdownText()+" · DUAL FINAL1 "+pick+" · 실전 "+FlowCore.liveRate(this);
         Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL_ID):new Notification.Builder(this);
         return b.setSmallIcon(android.R.drawable.ic_popup_sync)
-                .setContentTitle("보글사다리 삼치기80 AUTO-RANGE80 · 백그라운드 ON")
+                .setContentTitle("보글사다리 DUAL-RANGE FINAL1 V1.10 · 백그라운드 ON")
                 .setContentText(text)
                 .setStyle(new Notification.BigTextStyle().bigText(text))
                 .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(pi).build();

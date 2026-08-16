@@ -16,10 +16,9 @@ public final class FlowCore {
     private FlowCore(){}
 
     public static final String API="https://api.bepick.io/game/bubble_ladder3";
-    public static final String PREF="bubble_tripick80_v17_30fix";
-    public static final String ACTION_UPDATED="com.bubbleladder.tripick80v1730.FLOW_UPDATED";
-    public static final int STORAGE_WINDOW=150;
-    public static final int LEARNING_WINDOW=30;
+    public static final String PREF="bubble_dualrange_final1_v110";
+    public static final String ACTION_UPDATED="com.bubbleladder.dualrangefinal1v110.FLOW_UPDATED";
+    public static final int WINDOW=150;
     public static final double PICK_THRESHOLD=0.70;
 
     public static final String K_HISTORY="history", K_RECORDS="records",
@@ -83,6 +82,7 @@ public final class FlowCore {
         public Backtest backtest;
         public Target70Engine.Result target70;
         public TriPick80Engine.Result tri80;
+        public FinalOnePickEngine.Result final1;
     }
 
     public static final class SyncResult {
@@ -163,12 +163,12 @@ public final class FlowCore {
                 if(validResult(r))out.add(r);
             }
         }catch(Exception ignored){}
-        out.sort((a,b)->Long.compare(b.idx,a.idx)); if(out.size()>STORAGE_WINDOW)out=new ArrayList<>(out.subList(0,STORAGE_WINDOW)); return out;
+        out.sort((a,b)->Long.compare(b.idx,a.idx)); if(out.size()>WINDOW)out=new ArrayList<>(out.subList(0,WINDOW)); return out;
     }
 
     public static void save(Context c,List<Result> list){
         try{
-            JSONArray a=new JSONArray(); int n=Math.min(STORAGE_WINDOW,list.size());
+            JSONArray a=new JSONArray(); int n=Math.min(WINDOW,list.size());
             for(int i=0;i<n;i++){ Result r=list.get(i); if(!validResult(r))continue; JSONObject o=new JSONObject(); o.put("i",r.idx);o.put("d",r.date);o.put("r",r.round);o.put("c",r.combo);a.put(o); }
             prefs(c).edit().putString(K_HISTORY,a.toString()).apply();
         }catch(Exception ignored){}
@@ -184,12 +184,12 @@ public final class FlowCore {
             List<Result> api=fetch();
             stage="결과 병합"; sp.edit().putString(K_LAST_STAGE,stage).apply();
             TreeMap<Long,Result> map=new TreeMap<>(Collections.reverseOrder()); for(Result r:before)if(validResult(r))map.put(r.idx,r); for(Result r:api)if(validResult(r))map.put(r.idx,r);
-            List<Result> merged=new ArrayList<>(map.values()); if(merged.size()>STORAGE_WINDOW)merged=new ArrayList<>(merged.subList(0,STORAGE_WINDOW));
+            List<Result> merged=new ArrayList<>(map.values()); if(merged.size()>WINDOW)merged=new ArrayList<>(merged.subList(0,WINDOW));
             if(merged.isEmpty())throw new Exception("병합 후 유효 데이터 0개");
             stage="이전 픽 채점"; sp.edit().putString(K_LAST_STAGE,stage).apply();
             boolean resolved=resolvePending(c,merged);
             stage="로컬 저장"; sp.edit().putString(K_LAST_STAGE,stage).apply(); save(c,merged);
-            stage="AUTO-RANGE80 메인엔진"; sp.edit().putString(K_LAST_STAGE,stage).apply(); Analysis a=analyze(merged);
+            stage="DUAL-RANGE 필터 + 최종 1픽"; sp.edit().putString(K_LAST_STAGE,stage).apply(); Analysis a=analyze(merged);
             stage="다음 픽 저장"; sp.edit().putString(K_LAST_STAGE,stage).apply(); savePending(c,merged,a);
             sp.edit().putLong(K_LAST_SYNC,System.currentTimeMillis()).putInt(K_LAST_API_COUNT,api.size()).putString(K_LAST_STAGE,"완료").apply();
             SyncResult sr=new SyncResult(); sr.newRoundResolved=resolved||(!merged.isEmpty()&&merged.get(0).idx!=latestBefore); sr.analysis=a; sr.history=merged; return sr;
@@ -209,15 +209,11 @@ public final class FlowCore {
         TreeMap<Long,Result> uniq=new TreeMap<>();
         for(Result r:desc)if(validResult(r))uniq.put(r.idx,r);
         if(uniq.isEmpty())return null;
-        List<Result> stored=new ArrayList<>(uniq.values());
-        if(stored.size()>STORAGE_WINDOW)stored=new ArrayList<>(stored.subList(stored.size()-STORAGE_WINDOW,stored.size()));
-        // AUTO-RANGE80 핵심: 저장된 전체 history 안에서 학습길이 12회~전체를 자동 탐색한다.
-        // 31회 이전 데이터는 저장/백업용으로만 남고 현재 추천 계산에는 들어가지 않는다.
-        int learnFrom=Math.max(0,stored.size()-LEARNING_WINDOW);
-        List<Result> all=new ArrayList<>(stored.subList(learnFrom,stored.size()));
+        List<Result> all=new ArrayList<>(uniq.values());
+        if(all.size()>WINDOW)all=new ArrayList<>(all.subList(all.size()-WINDOW,all.size()));
 
         Analysis a;
-        if(all.size()<6)a=emptyAnalysis("표본 "+all.size()+"/6 · 학습표본 수집중");
+        if(all.size()<6)a=emptyAnalysis("표본 "+all.size()+"/6 · 안전 수집중");
         else try{ a=decision(all,0,all.size()); }
         catch(Throwable e){ a=emptyAnalysis("현재 분석 보호모드 · "+safeErr(e)); }
         a.count=all.size();
@@ -225,14 +221,15 @@ public final class FlowCore {
         try{a.date=dayKey(last.date);}catch(Throwable ignored){a.date=String.valueOf(last.date==null?"":last.date);}
         try{a.windowRange=rangeLabel(all,0,all.size());}catch(Throwable ignored){a.windowRange="-";}
         try{a.suffix=suffixText(all,all.size(),8);}catch(Throwable ignored){a.suffix="-";}
-        try{a.backtest=all.size()>=12?backtest(all):new Backtest();}catch(Throwable ignored){a.backtest=new Backtest();}
+        try{a.backtest=all.size()>=16?backtest(all):new Backtest();}catch(Throwable ignored){a.backtest=new Backtest();}
         try{a.target70=Target70Engine.optimize(all);}catch(Throwable e){a.target70=new Target70Engine.Result();a.target70.detail="자동탐색 엔진 보호모드 · "+safeErr(e);}
-        try{a.tri80=TriPick80Engine.optimize(all);}catch(Throwable e){a.tri80=new TriPick80Engine.Result();a.tri80.detail="AUTO-RANGE80 엔진 보호모드 · "+safeErr(e);}
+        try{a.tri80=TriPick80Engine.optimize(all);}catch(Throwable e){a.tri80=new TriPick80Engine.Result();a.tri80.detail="DUAL-RANGE 엔진 보호모드 · "+safeErr(e);}
+        try{int ex=a.tri80!=null?a.tri80.excludedCombo:0;a.final1=FinalOnePickEngine.optimize(all,ex);}catch(Throwable e){a.final1=new FinalOnePickEngine.Result();a.final1.detail="최종 1픽 엔진 보호모드 · "+safeErr(e);}
         if(a.target70!=null && a.target70.certified){
             a.bestDim=a.target70.dim; a.bestPick=a.target70.pick; a.bestConfidence=a.target70.validationRate; a.bestStrong=a.target70.targetAchieved || a.target70.validationRate>=0.70;
             a.bestLabel=DIM[a.bestDim]+" · "+sideLabel(DIM[a.bestDim],a.bestPick);
         }else{
-            a.bestDim=-1; a.bestPick=0; a.bestConfidence=0.0; a.bestStrong=false; a.bestLabel="AUTO-RANGE80 준비중";
+            a.bestDim=-1; a.bestPick=0; a.bestConfidence=0.0; a.bestStrong=false; a.bestLabel="자동탐색 준비중";
         }
         return a;
     }
@@ -408,11 +405,11 @@ public final class FlowCore {
         if(d.isEmpty()||a==null)return;
         SharedPreferences sp=prefs(c); long next=nextIdx(d.get(0)); long existing=sp.getLong(K_PENDING_IDX,-1); if(existing==next)return;
         int stake=Math.max(5000,sp.getInt(K_BASE_STAKE,5000)); double odds=Math.max(1.01,sp.getFloat(K_ODDS,1.95f));
-        // META80: 최고 삼치기 1픽 하나만 저장한다.
-        if(a.tri80!=null&&a.tri80.excludedCombo>=1&&a.tri80.excludedCombo<=4){
-            int ex=a.tri80.excludedCombo; double conf=a.tri80.validationRate;
-            String pick="삼치기 · 제외 "+COMBO[ex]+" · "+pct(conf);
-            sp.edit().putLong(K_PENDING_IDX,next).putInt(K_PENDING_DIM,3).putInt(K_PENDING_PICK,ex)
+        // V1.10: V1.7+V1.9 DUAL-RANGE 1차는 필터로 쓰고, 실제 저장/채점 대상은 남은 3개 중 최종 1픽 하나다.
+        if(a.final1!=null&&a.final1.pickCombo>=1&&a.final1.pickCombo<=4){
+            int fp=a.final1.pickCombo; double conf=a.final1.validationRate;
+            String pick="최종1픽 · "+COMBO[fp]+" · 2차검증 "+pct(conf);
+            sp.edit().putLong(K_PENDING_IDX,next).putInt(K_PENDING_DIM,4).putInt(K_PENDING_PICK,fp)
                     .putFloat(K_PENDING_CONF,(float)conf).putInt(K_PENDING_STAKE,stake).putFloat(K_PENDING_ODDS,(float)odds)
                     .putString(K_LAST_PICK,pick).putFloat(K_LAST_CONF,(float)conf).apply();
             return;
@@ -426,13 +423,13 @@ public final class FlowCore {
 
     private static boolean resolvePending(Context c,List<Result>d){
         SharedPreferences sp=prefs(c); long idx=sp.getLong(K_PENDING_IDX,-1); int dim=sp.getInt(K_PENDING_DIM,-1),pick=sp.getInt(K_PENDING_PICK,0);
-        if(idx<=0||dim<0||dim>3||pick==0)return false;
+        if(idx<=0||dim<0||dim>4||pick==0)return false;
         Result actual=null; for(Result r:d)if(r.idx==idx){actual=r;break;} if(actual==null)return false;
-        boolean tri=(dim==3);
-        if(tri&&(pick<1||pick>4))return false;
-        boolean ok=tri?(actual.combo!=pick):(vec(actual.combo,dim)==pick);
+        boolean tri=(dim==3), exact=(dim==4);
+        if((tri||exact)&&(pick<1||pick>4))return false;
+        boolean ok=tri?(actual.combo!=pick):exact?(actual.combo==pick):(vec(actual.combo,dim)==pick);
         int st=sp.getInt(K_PENDING_STAKE,5000); double o=sp.getFloat(K_PENDING_ODDS,1.95f);
-        // 삼치기는 사이트별 실제 배팅 조합/배당 계산이 다를 수 있어 승률만 채점하고 가상손익은 0으로 둔다.
+        // 삼치기(dim=3)는 필터용이라 손익 0, 최종 1픽(dim=4)은 입력 배당으로 단일픽 손익을 기록한다.
         double pnl=tri?0.0:(ok?st*(o-1.0):-st);
         int n=sp.getInt(K_LIVE_TOTAL,0)+1,hit=sp.getInt(K_LIVE_SUCCESS,0)+(ok?1:0); double old=Double.longBitsToDouble(sp.getLong(K_LIVE_PROFIT,Double.doubleToLongBits(0)));
         appendRecord(c,idx,dim,pick,sp.getFloat(K_PENDING_CONF,0.5f),actual.combo,ok,pnl);
@@ -456,7 +453,7 @@ public final class FlowCore {
     public static void resetAll(Context c){ prefs(c).edit().clear().putBoolean(K_AUTO,false).putInt(K_BASE_STAKE,5000).putFloat(K_ODDS,1.95f).apply(); }
 
     public static JSONObject backup(Context c)throws Exception{
-        SharedPreferences sp=prefs(c); JSONObject root=new JSONObject(); root.put("format","BubbleTriPick80V17Backup");
+        SharedPreferences sp=prefs(c); JSONObject root=new JSONObject(); root.put("format","BubbleDualRangeFinal1V110Backup");
         root.put("history",new JSONArray(sp.getString(K_HISTORY,"[]"))); root.put("records",new JSONArray(sp.getString(K_RECORDS,"[]")));
         JSONObject st=new JSONObject(); st.put("liveTotal",sp.getInt(K_LIVE_TOTAL,0));st.put("liveHit",sp.getInt(K_LIVE_SUCCESS,0));st.put("liveProfit",sp.getLong(K_LIVE_PROFIT,Double.doubleToLongBits(0)));
         st.put("stake",sp.getInt(K_BASE_STAKE,5000));st.put("odds",sp.getFloat(K_ODDS,1.95f));st.put("auto",sp.getBoolean(K_AUTO,false));root.put("state",st); return root;
@@ -464,7 +461,7 @@ public final class FlowCore {
     public static void restore(Context c,JSONObject root)throws Exception{
         SharedPreferences.Editor ed=prefs(c).edit(); JSONArray src=root.optJSONArray("history");
         if(src!=null){ TreeMap<Long,JSONObject> map=new TreeMap<>(Collections.reverseOrder()); for(int i=0;i<src.length();i++){JSONObject o=src.optJSONObject(i);if(o!=null){long idx=o.optLong("i",o.optLong("idx",0));if(idx>0)map.put(idx,o);}}
-            JSONArray cut=new JSONArray();int n=0;for(JSONObject o:map.values()){if(n++>=STORAGE_WINDOW)break;cut.put(o);}ed.putString(K_HISTORY,cut.toString()); }
+            JSONArray cut=new JSONArray();int n=0;for(JSONObject o:map.values()){if(n++>=WINDOW)break;cut.put(o);}ed.putString(K_HISTORY,cut.toString()); }
         if(root.has("records"))ed.putString(K_RECORDS,root.getJSONArray("records").toString()); JSONObject st=root.optJSONObject("state");
         if(st!=null){ed.putInt(K_LIVE_TOTAL,st.optInt("liveTotal",0));ed.putInt(K_LIVE_SUCCESS,st.optInt("liveHit",0));ed.putLong(K_LIVE_PROFIT,st.optLong("liveProfit",Double.doubleToLongBits(0)));ed.putInt(K_BASE_STAKE,Math.max(5000,st.optInt("stake",5000)));ed.putFloat(K_ODDS,(float)st.optDouble("odds",1.95));ed.putBoolean(K_AUTO,false);}
         ed.apply();
